@@ -1,0 +1,2 @@
+# Prompts
+create a vision document that describes an application called EasePaste that once you give your informationt to it, and upload a PDF DOCX or other form like real estate documeets, tax documents, or job contracts, you get it back fully filled out to download
