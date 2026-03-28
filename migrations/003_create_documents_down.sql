@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS documents CASCADE;
+DROP TYPE IF EXISTS document_status;
+DROP TYPE IF EXISTS file_type;
