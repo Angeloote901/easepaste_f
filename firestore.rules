@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /profiles/{docId} {
+      allow write: if true;   // anyone can save a profile
+      allow read: if false;   // nobody can read others' profiles
+    }
+  }
+}
