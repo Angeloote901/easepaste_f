@@ -42,3 +42,6 @@ pids/
 
 # TypeScript cache
 *.tsbuildinfo
+
+.vercel
+.env*.local
