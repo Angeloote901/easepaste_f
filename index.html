@@ -633,64 +633,122 @@ window.handleUpload = function(input) {
 }
 
 
+// Build a flat key→value map from the profile text.
+// Handles both "Key: Value" lines and common natural-language patterns.
+function parseProfile(text) {
+  const data = {}
+
+  // "Key: Value" lines
+  text.split(/\r?\n/).forEach(line => {
+    const m = line.match(/^([^:]+):\s*(.+)$/)
+    if (m) data[m[1].trim().toLowerCase()] = m[2].trim()
+  })
+
+  // Natural-language fallbacks (only fill gaps)
+  const nlPatterns = [
+    { key: 'full name',     regex: /my name is ([A-Z][a-z]+ [A-Z][a-z]+)/i },
+    { key: 'address',       regex: /(?:live at|address is) ([^\.,]+)/i },
+    { key: 'phone',         regex: /(?:phone|cell|mobile)(?: is| number is)? ([\d\s\(\)\-\+\.]{7,})/i },
+    { key: 'email',         regex: /(?:email)(?: is)? ([\w\.\-]+@[\w\.\-]+\.[a-z]{2,})/i },
+    { key: 'date of birth', regex: /born ([A-Z][a-z]+ \d{1,2},? \d{4}|\d{1,2}\/\d{1,2}\/\d{4})/i },
+    { key: 'employer',      regex: /(?:work at|work for|employed at|employer is) ([^\.,]+)/i },
+    { key: 'job title',     regex: /(?:work as a?|job title is|position is) ([^\.,]+)/i },
+    { key: 'salary',        regex: /earning \$?([\d,]+)/i },
+    { key: 'city',          regex: /(?:in|city of) ([A-Z][a-z]+(?:,\s*[A-Z]{2})?)/i },
+  ]
+  nlPatterns.forEach(({ key, regex }) => {
+    if (!data[key]) {
+      const m = text.match(regex)
+      if (m?.[1]) data[key] = m[1].trim()
+    }
+  })
+
+  return data
+}
+
+// Look up a document field label against the profile data map.
+// Returns the value string, or null if nothing matches.
+function lookupField(label, data) {
+  const key = label.toLowerCase().trim()
+  if (data[key]) return data[key]
+
+  // Alias table: maps common document labels to profile keys
+  const aliases = {
+    'name':         ['name', 'full name', 'first name'],
+    'first name':   ['name', 'first name', 'full name'],
+    'last name':    ['last name', 'surname', 'family name'],
+    'surname':      ['last name', 'surname'],
+    'e-mail':       ['email', 'e-mail'],
+    'email address':['email', 'email address'],
+    'telephone':    ['phone', 'telephone', 'mobile', 'cell'],
+    'tel':          ['phone', 'tel', 'telephone'],
+    'mobile':       ['phone', 'mobile', 'cell'],
+    'dob':          ['date of birth', 'dob'],
+    'birthday':     ['date of birth', 'birthday'],
+    'company':      ['employer', 'company'],
+    'position':     ['job title', 'position'],
+    'title':        ['job title', 'title'],
+    'annual salary':['salary', 'annual salary'],
+    'compensation': ['salary', 'compensation'],
+  }
+
+  for (const [alias, candidates] of Object.entries(aliases)) {
+    if (alias === key) {
+      for (const c of candidates) {
+        if (data[c]) return data[c]
+      }
+    }
+  }
+
+  // Partial match as last resort
+  for (const [dataKey, value] of Object.entries(data)) {
+    if (dataKey.includes(key) || key.includes(dataKey)) return value
+  }
+
+  return null
+}
+
 function fillDocument(docText, _filename) {
-  setStatus('upload-status', 'Analyzing your document…', true)
+  setStatus('upload-status', 'Filling your document…', true)
   document.getElementById('result-box').classList.remove('visible')
   document.getElementById('download-btn').classList.remove('visible')
 
-  const patterns = [
-    { label: 'Full Name',     regex: /my name is ([A-Z][a-z]+ [A-Z][a-z]+)/i },
-    { label: 'Address',       regex: /(?:live at|address is) ([^\.,]+)/i },
-    { label: 'Phone',         regex: /(?:phone|cell|mobile)(?: is| number is)? ([\d\s\(\)\-\+\.]{7,})/i },
-    { label: 'Email',         regex: /(?:email)(?: is)? ([\w\.\-]+@[\w\.\-]+\.[a-z]{2,})/i },
-    { label: 'Date of Birth', regex: /born ([A-Z][a-z]+ \d{1,2},? \d{4}|\d{1,2}\/\d{1,2}\/\d{4})/i },
-    { label: 'Employer',      regex: /(?:work at|work for|employed at|employer is) ([^\.,]+)/i },
-    { label: 'Job Title',     regex: /(?:work as a?|job title is|position is) ([^\.,]+)/i },
-    { label: 'Annual Salary', regex: /earning \$?([\d,]+)/i },
-    { label: 'City',          regex: /(?:in|city of) ([A-Z][a-z]+(?:,\s*[A-Z]{2})?)/i },
-  ]
+  const data    = parseProfile(savedProfile)
+  let   filled  = docText
+  let   count   = 0
 
-  const fields = []
-  patterns.forEach(({ label, regex }) => {
-    const match = savedProfile.match(regex)
-    if (match?.[1]) fields.push({ label, value: match[1].trim() })
+  // 1. Fill [Label] placeholders — but leave [ ] (empty brackets) untouched
+  filled = filled.replace(/\[([^\]]*)\]/g, (match, inner) => {
+    if (!inner.trim()) return match   // preserve [ ] exactly
+    const val = lookupField(inner, data)
+    if (val) { count++; return val }
+    return match  // no match — keep original placeholder
   })
 
-  if (fields.length === 0) {
-    fields.push({ label: 'Profile Summary', value: savedProfile.slice(0, 120) + '...' })
-  }
+  // 2. Fill "Label: <empty>" lines (value is blank after the colon)
+  filled = filled.replace(/(^[^\S\r\n]*[^\[\]\r\n:]+):([ \t]*)(\r?\n)/gm, (match, label, space, nl) => {
+    const val = lookupField(label.trim(), data)
+    if (val) { count++; return `${label}:${space}${val}${nl}` }
+    return match  // no match — leave the empty field as-is
+  })
 
-  lastFillResult = { fields, summary: `Found ${fields.length} field(s) from your profile.` }
-  showResults(lastFillResult)
+  lastFillResult = { filledText: filled }
+  showFilledDocument(filled, count)
 }
 
-function showResults(parsed) {
-  const fields    = parsed.fields || []
+function showFilledDocument(filledText, count) {
   const container = document.getElementById('filled-fields')
-  container.innerHTML = ''
-
-  fields.forEach(f => {
-    const div = document.createElement('div')
-    div.className = 'filled-field'
-    div.innerHTML = `<span class="field-name">${escHtml(f.label)}</span><span class="field-val">${escHtml(f.value)}</span>`
-    container.appendChild(div)
-  })
+  container.innerHTML = `<pre style="white-space:pre-wrap;font-size:0.82rem;line-height:1.6;color:var(--gray-700);margin:0">${escHtml(filledText)}</pre>`
 
   document.getElementById('result-box').classList.add('visible')
   document.getElementById('download-btn').classList.add('visible')
-  setStatus('upload-status', parsed.summary || 'Fields filled successfully.')
+  setStatus('upload-status', `Filled ${count} field(s). Empty brackets and unfilled fields were left unchanged.`)
 }
 
 // ── Download ───────────────────────────────────────────────────────────────
 window.downloadResult = function() {
   if (!lastFillResult) return
-  const fields = lastFillResult.fields || []
-  let content  = `FILLED DOCUMENT: ${lastFileName}\n`
-  content += '='.repeat(50) + '\n\nAUTOFILLED BY EASEPASTE\n\n'
-  fields.forEach(f => { content += `${f.label}: ${f.value}\n` })
-  content += '\n' + '='.repeat(50) + '\nGenerated by EasePaste'
-
-  const blob = new Blob([content], { type: 'text/plain' })
+  const blob = new Blob([lastFillResult.filledText], { type: 'text/plain' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
   a.href = url
