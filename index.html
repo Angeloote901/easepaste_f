@@ -324,10 +324,7 @@ My name is Sarah Johnson. I live at 42 Maple Street, Boston, MA 02101. My phone 
 
 Write as much or as little as you like — the more detail, the better the autofill."></textarea>
       <div class="profile-saved-indicator" id="saved-indicator">✓ Profile saved</div>
-      <div id="firestore-save-badge" class="firestore-badge" style="display:none">
-        <svg viewBox="0 0 24 24" fill="#FF6D00"><path d="M6.5 5a6.5 6.5 0 1 1 4.487 6.194L9.5 12.5H8v1.5H6.5V15.5H5v-2H3.5v-1.5H5v-1l1.5-1.5-.057-.057A6.5 6.5 0 0 1 6.5 5zm6.5 0a1 1 0 1 0-2 0 1 1 0 0 0 2 0z"/></svg>
-        Saved to Firestore
-      </div>
+
       <button class="save-btn" id="save-btn" onclick="saveProfile()">Save my information</button>
       <p class="status-msg" id="save-status"></p>
     </div>
@@ -343,10 +340,7 @@ Write as much or as little as you like — the more detail, the better the autof
       <div class="result-box" id="result-box">
         <p style="font-weight:700;font-size:0.85rem;margin-bottom:0.7rem;color:var(--green-800);">✓ Fields detected &amp; filled</p>
         <div id="filled-fields"></div>
-        <div id="firestore-doc-badge" class="firestore-badge" style="margin-top:0.6rem;display:none">
-          <svg viewBox="0 0 24 24" fill="#FF6D00"><path d="M6.5 5a6.5 6.5 0 1 1 4.487 6.194L9.5 12.5H8v1.5H6.5V15.5H5v-2H3.5v-1.5H5v-1l1.5-1.5-.057-.057A6.5 6.5 0 0 1 6.5 5zm6.5 0a1 1 0 1 0-2 0 1 1 0 0 0 2 0z"/></svg>
-          Result saved to Firestore
-        </div>
+
       </div>
       <button class="download-btn" id="download-btn" onclick="downloadResult()">⬇ Download filled document</button>
       <p class="status-msg" id="upload-status"></p>
@@ -439,11 +433,7 @@ import { getAuth, onAuthStateChanged,
          signOut as fbSignOut,
          GoogleAuthProvider,
          signInWithPopup }                             from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js'
-import { getFirestore, doc, setDoc,
-         collection, addDoc, serverTimestamp }        from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js'
-import { getFunctions, httpsCallable }                from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-functions.js'
 
-// ── Firebase config — replace with your project's values ──────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyBkXlfcQZlq94neEmEObazbRGE9bZr29WI",
   authDomain: "easepaste-a67d7.firebaseapp.com",
@@ -452,38 +442,30 @@ const firebaseConfig = {
   messagingSenderId: "559531772920",
   appId: "1:559531772920:web:6c13f04ab00eea5d85240d",
   measurementId: "G-73DFQR1M5V"
-};
-// ──────────────────────────────────────────────────────────────────────────
+}
 
-const app       = initializeApp(firebaseConfig)
-const auth      = getAuth(app)
-const db        = getFirestore(app)
-const functions = getFunctions(app, 'us-central1')
-
-// Cloud Function references
-const demoFillFn    = httpsCallable(functions, 'demoFill')
-const saveProfileFn = httpsCallable(functions, 'saveProfile')
+const app  = initializeApp(firebaseConfig)
+const auth = getAuth(app)
 
 // ── State ──────────────────────────────────────────────────────────────────
-let currentUser   = null
-let savedProfile  = ''
-let lastFileName  = 'document'
+let currentUser    = null
+let savedProfile   = localStorage.getItem('easepaste_profile') || ''
+let lastFileName   = 'document'
 let lastFillResult = null
-let currentTab    = 'login'
+let currentTab     = 'login'
+
+// Restore saved profile on load
+if (savedProfile) {
+  const textarea = document.getElementById('profile-text')
+  if (textarea) textarea.value = savedProfile
+  document.getElementById('saved-indicator')?.classList.add('visible')
+}
 
 // ── Auth state listener ────────────────────────────────────────────────────
 onAuthStateChanged(auth, (user) => {
   currentUser = user
   updateNavState(user)
-  if (user) {
-    closeModal()
-    // Restore profile textarea from what was saved if still empty
-    const textarea = document.getElementById('profile-text')
-    if (textarea && !textarea.value) {
-      // Profile text is in Firestore — user would need to type again or
-      // we could load it. For now just show the saved indicator if profile exists.
-    }
-  }
+  if (user) closeModal()
 })
 
 // ── Nav state ──────────────────────────────────────────────────────────────
@@ -581,16 +563,14 @@ window.signOut = async function() {
   document.getElementById('save-btn').textContent = 'Save my information'
   document.getElementById('result-box').classList.remove('visible')
   document.getElementById('download-btn').classList.remove('visible')
-  document.getElementById('firestore-save-badge').style.display = 'none'
   setStatus('save-status', '')
   setStatus('upload-status', '')
 }
 
 // ── Profile save ───────────────────────────────────────────────────────────
-window.saveProfile = async function() {
-  const text     = document.getElementById('profile-text').value.trim()
-  const saveBtn  = document.getElementById('save-btn')
-  const badge    = document.getElementById('firestore-save-badge')
+window.saveProfile = function() {
+  const text    = document.getElementById('profile-text').value.trim()
+  const saveBtn = document.getElementById('save-btn')
 
   if (!text) {
     setStatus('save-status', 'Please enter some information first.', false, true)
@@ -598,35 +578,11 @@ window.saveProfile = async function() {
   }
 
   savedProfile = text
-
-  // Always save locally so the demo fill works
+  localStorage.setItem('easepaste_profile', text)
   document.getElementById('saved-indicator').classList.add('visible')
-
-  // If signed in, also persist to Firestore
-  if (currentUser) {
-    saveBtn.disabled = true
-    saveBtn.textContent = 'Saving…'
-    try {
-      // Direct Firestore write (client SDK, covered by security rules)
-      await setDoc(doc(db, 'profiles', currentUser.uid), {
-        text: text,
-        updatedAt: serverTimestamp(),
-      })
-      badge.style.display = 'flex'
-      saveBtn.textContent = '✓ Saved'
-      setStatus('save-status', '')
-    } catch (err) {
-      console.error('Firestore save error:', err)
-      // Non-fatal — demo still works with local copy
-      saveBtn.disabled = false
-      saveBtn.textContent = 'Save my information'
-      setStatus('save-status', 'Could not save to cloud — demo will still work.', false, false)
-    }
-  } else {
-    saveBtn.disabled = true
-    saveBtn.textContent = '✓ Saved locally'
-    setStatus('save-status', 'Sign in to persist your profile across sessions.')
-  }
+  saveBtn.disabled = true
+  saveBtn.textContent = '✓ Saved'
+  setStatus('save-status', '')
 }
 
 // ── Document upload ────────────────────────────────────────────────────────
@@ -659,7 +615,7 @@ window.handleUpload = function(input) {
           const content = await page.getTextContent()
           fullText += content.items.map(item => item.str).join(' ') + '\n'
         }
-        await fillDocument(fullText || 'PDF uploaded (no extractable text found).', file.name)
+        fillDocument(fullText || 'PDF uploaded (no extractable text found).', file.name)
       } catch (err) {
         console.error('PDF read error:', err)
         setStatus('upload-status', 'Could not read PDF. Try a .txt file instead.', false, true)
@@ -669,48 +625,43 @@ window.handleUpload = function(input) {
   } else {
     // TXT / DOC fallback
     const reader = new FileReader()
-    reader.onload = async (e) => {
-      await fillDocument(e.target.result, file.name)
+    reader.onload = (e) => {
+      fillDocument(e.target.result, file.name)
     }
     reader.readAsText(file)
   }
 }
 
 
-async function fillDocument(docText, _filename) {
+function fillDocument(docText, _filename) {
   setStatus('upload-status', 'Analyzing your document…', true)
   document.getElementById('result-box').classList.remove('visible')
   document.getElementById('download-btn').classList.remove('visible')
-  document.getElementById('firestore-doc-badge').style.display = 'none'
 
-  const truncated = docText.length > 3000 ? docText.slice(0, 3000) + '\n...[truncated]' : docText
+  const patterns = [
+    { label: 'Full Name',     regex: /my name is ([A-Z][a-z]+ [A-Z][a-z]+)/i },
+    { label: 'Address',       regex: /(?:live at|address is) ([^\.,]+)/i },
+    { label: 'Phone',         regex: /(?:phone|cell|mobile)(?: is| number is)? ([\d\s\(\)\-\+\.]{7,})/i },
+    { label: 'Email',         regex: /(?:email)(?: is)? ([\w\.\-]+@[\w\.\-]+\.[a-z]{2,})/i },
+    { label: 'Date of Birth', regex: /born ([A-Z][a-z]+ \d{1,2},? \d{4}|\d{1,2}\/\d{1,2}\/\d{4})/i },
+    { label: 'Employer',      regex: /(?:work at|work for|employed at|employer is) ([^\.,]+)/i },
+    { label: 'Job Title',     regex: /(?:work as a?|job title is|position is) ([^\.,]+)/i },
+    { label: 'Annual Salary', regex: /earning \$?([\d,]+)/i },
+    { label: 'City',          regex: /(?:in|city of) ([A-Z][a-z]+(?:,\s*[A-Z]{2})?)/i },
+  ]
 
-  try {
-    const result = await demoFillFn({ profile: savedProfile, document: truncated })
-    lastFillResult = result.data
+  const fields = []
+  patterns.forEach(({ label, regex }) => {
+    const match = savedProfile.match(regex)
+    if (match?.[1]) fields.push({ label, value: match[1].trim() })
+  })
 
-    // If signed in, save the result to Firestore directly as well
-    if (currentUser) {
-      try {
-        await addDoc(collection(db, 'documents'), {
-          userId:    currentUser.uid,
-          filename:  lastFileName,
-          fields:    result.data.fields,
-          summary:   result.data.summary,
-          createdAt: serverTimestamp(),
-        })
-        document.getElementById('firestore-doc-badge').style.display = 'flex'
-      } catch (err) {
-        console.warn('Could not save document result to Firestore:', err)
-      }
-    }
-
-    showResults(result.data)
-  } catch (err) {
-    // Firebase callable functions throw with err.code and err.message
-    const msg = err.message || 'Something went wrong. Please try again.'
-    setStatus('upload-status', msg, false, true)
+  if (fields.length === 0) {
+    fields.push({ label: 'Profile Summary', value: savedProfile.slice(0, 120) + '...' })
   }
+
+  lastFillResult = { fields, summary: `Found ${fields.length} field(s) from your profile.` }
+  showResults(lastFillResult)
 }
 
 function showResults(parsed) {
