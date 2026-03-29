@@ -36,8 +36,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.saveProfile = exports.demoFill = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
-admin.initializeApp();
-exports.demoFill = (0, https_1.onCall)(async (request) => {
+const app_1 = require("firebase-admin/app");
+if (!(0, app_1.getApps)().length) {
+    admin.initializeApp();
+}
+exports.demoFill = (0, https_1.onCall)({ cors: true, invoker: 'public' }, async (request) => {
     const profile = request.data?.profile;
     const document = request.data?.document;
     if (!profile || !document) {
@@ -67,13 +70,10 @@ exports.demoFill = (0, https_1.onCall)(async (request) => {
             value: profile.slice(0, 120) + '...',
         });
     }
-    const result = {
-        fields,
-        summary: `Found ${fields.length} field(s) from your profile.`,
-    };
+    const result = { fields, summary: `Found ${fields.length} field(s) from your profile.` };
     return result;
 });
-exports.saveProfile = (0, https_1.onCall)(async (request) => {
+exports.saveProfile = (0, https_1.onCall)({ cors: true }, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'Must be signed in.');
     }

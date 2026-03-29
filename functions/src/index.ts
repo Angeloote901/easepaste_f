@@ -1,7 +1,10 @@
 import { onCall, HttpsError, CallableRequest } from 'firebase-functions/v2/https'
 import * as admin from 'firebase-admin'
+import { getApps } from 'firebase-admin/app'
 
-admin.initializeApp()
+if (!getApps().length) {
+  admin.initializeApp()
+}
 
 interface FilledField {
   label: string
@@ -13,7 +16,7 @@ interface FillResponse {
   summary: string
 }
 
-export const demoFill = onCall(async (request: CallableRequest) => {
+export const demoFill = onCall({ cors: true, invoker: 'public' }, async (request: CallableRequest) => {
   const profile  = request.data?.profile  as string | undefined
   const document = request.data?.document as string | undefined
 
@@ -49,14 +52,11 @@ export const demoFill = onCall(async (request: CallableRequest) => {
     })
   }
 
-  const result: FillResponse = {
-    fields,
-    summary: `Found ${fields.length} field(s) from your profile.`,
-  }
+  const result: FillResponse = { fields, summary: `Found ${fields.length} field(s) from your profile.` }
   return result
 })
 
-export const saveProfile = onCall(async (request: CallableRequest) => {
+export const saveProfile = onCall({ cors: true }, async (request: CallableRequest) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Must be signed in.')
   }

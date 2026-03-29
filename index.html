@@ -270,6 +270,7 @@
   .firestore-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--gray-400); margin-top: 0.4rem; }
   .firestore-badge svg { width: 12px; height: 12px; }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 
@@ -457,7 +458,7 @@ const firebaseConfig = {
 const app       = initializeApp(firebaseConfig)
 const auth      = getAuth(app)
 const db        = getFirestore(app)
-const functions = getFunctions(app)
+const functions = getFunctions(app, 'us-central1')
 
 // Cloud Function references
 const demoFillFn    = httpsCallable(functions, 'demoFill')
@@ -629,6 +630,7 @@ window.saveProfile = async function() {
 }
 
 // ── Document upload ────────────────────────────────────────────────────────
+// ── Document upload ────────────────────────────────────────────────────────
 window.handleUpload = function(input) {
   const file = input.files[0]
   if (!file) return
@@ -639,12 +641,41 @@ window.handleUpload = function(input) {
   }
 
   lastFileName = file.name.replace(/\.[^/.]+$/, '')
-  const reader = new FileReader()
-  reader.onload = async (e) => {
-    await fillDocument(e.target.result, file.name)
+  const ext = file.name.split('.').pop().toLowerCase()
+
+  if (ext === 'pdf') {
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        setStatus('upload-status', 'Reading PDF…', true)
+        const pdfjsLib = window['pdfjs-dist/build/pdf']
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+        const typedArray = new Uint8Array(e.target.result)
+        const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise
+        let fullText = ''
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const content = await page.getTextContent()
+          fullText += content.items.map(item => item.str).join(' ') + '\n'
+        }
+        await fillDocument(fullText || 'PDF uploaded (no extractable text found).', file.name)
+      } catch (err) {
+        console.error('PDF read error:', err)
+        setStatus('upload-status', 'Could not read PDF. Try a .txt file instead.', false, true)
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  } else {
+    // TXT / DOC fallback
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      await fillDocument(e.target.result, file.name)
+    }
+    reader.readAsText(file)
   }
-  reader.readAsText(file)
 }
+
 
 async function fillDocument(docText, _filename) {
   setStatus('upload-status', 'Analyzing your document…', true)
